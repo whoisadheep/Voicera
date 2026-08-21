@@ -532,7 +532,7 @@ async def exotel_websocket(websocket: WebSocket):
                 print(f"[Exotel]    Custom params: {custom_params}")
 
                 # Send greeting when call starts
-                await send_greeting()
+                asyncio.create_task(send_greeting())
 
             elif event == "media":
                 if is_agent_speaking or time.time() - agent_stopped_speaking_time < 0.5:
