@@ -165,6 +165,7 @@ def build_exotel_clear_message(stream_sid: str) -> str:
 # ─── Health check ─────────────────────────────────────────────────────────────
 @app.get("/")
 async def get():
+    print("[Health] GET / hit — returning OK")
     return {"status": "ok", "service": "Voicera Exotel Server"}
 
 
