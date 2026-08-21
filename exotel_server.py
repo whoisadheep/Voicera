@@ -162,11 +162,10 @@ def build_exotel_clear_message(stream_sid: str) -> str:
     })
 
 
-# ─── Serve the web client too ────────────────────────────────────────────────
+# ─── Health check ─────────────────────────────────────────────────────────────
 @app.get("/")
 async def get():
-    with open("index.html", "r") as f:
-        return HTMLResponse(f.read())
+    return {"status": "ok", "service": "Voicera Exotel Server"}
 
 
 # ─── Original browser WebSocket (unchanged) ──────────────────────────────────
