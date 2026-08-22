@@ -28,7 +28,6 @@ import websockets
 from groq import Groq, AsyncGroq
 from fishaudio import FishAudio
 from fishaudio.types import TTSConfig
-from scipy.signal import butter, lfilter
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -40,7 +39,7 @@ app = FastAPI()
 EXOTEL_SAMPLE_RATE = 16000
 FISH_SAMPLE_RATE = 16000
 VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "500"))
-_HPF_B, _HPF_A = butter(2, 200.0 / (0.5 * 16000.0), btype='high', analog=False)
+
 
 # ─── API Clients ──────────────────────────────────────────────────────────────
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
@@ -137,7 +136,7 @@ def apply_hpf(audio: np.ndarray, cutoff: float = 200.0, fs: float = 16000.0) -> 
     if len(audio) == 0:
         return audio
         
-    return lfilter(_HPF_B, _HPF_A, audio).astype(audio.dtype)
+    return audio
 
 def normalize_audio(audio: np.ndarray, target_peak: float = 0.95) -> np.ndarray:
     """Normalize audio peak to boost low-volume phone signals for Whisper STT."""
