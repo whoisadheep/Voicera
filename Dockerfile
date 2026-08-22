@@ -15,4 +15,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Railway/Render set PORT env var automatically
-CMD uvicorn exotel_server:app --host 0.0.0.0 --port $PORT
+EXPOSE 8080
+CMD uvicorn exotel_server:app --host 0.0.0.0 --port 8080
