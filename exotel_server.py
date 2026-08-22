@@ -23,7 +23,7 @@ import numpy as np
 import httpx
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
-from silero_vad import load_silero_vad, VADIterator
+# Lightweight energy-based VAD (replaces silero_vad + torch to save ~400MB RAM)
 import websockets
 from groq import Groq, AsyncGroq
 from fishaudio import FishAudio
@@ -56,8 +56,62 @@ fish_tts_config = TTSConfig(
     chunk_length=150,
 )
 
-# ─── Silero VAD ───────────────────────────────────────────────────────────────
-vad_model = load_silero_vad()
+# ─── Lightweight Energy-based VAD (replaces Silero + PyTorch) ─────────────────
+class VADIterator:
+    """Drop-in replacement for silero_vad.VADIterator using RMS energy detection.
+    
+    Same interface: call with a numpy float32 chunk, returns:
+      - {"start": ...} when speech begins
+      - {"end": ...}   when speech ends  
+      - None           otherwise
+    """
+    def __init__(self, threshold=0.015, sampling_rate=16000, min_silence_duration_ms=100, speech_pad_ms=30):
+        self.threshold = threshold
+        self.sampling_rate = sampling_rate
+        self.min_silence_samples = sampling_rate * min_silence_duration_ms / 1000
+        self.speech_pad_samples = sampling_rate * speech_pad_ms / 1000
+        self.reset_states()
+
+    def reset_states(self):
+        self.triggered = False
+        self.temp_end = 0
+        self.current_sample = 0
+
+    def __call__(self, x, return_seconds=False, time_resolution=1):
+        if isinstance(x, np.ndarray):
+            chunk = x
+        else:
+            chunk = np.array(x, dtype=np.float32)
+        
+        window_size_samples = len(chunk)
+        self.current_sample += window_size_samples
+        
+        # RMS energy as speech probability proxy
+        rms = np.sqrt(np.mean(chunk ** 2))
+        speech_detected = rms > self.threshold
+        
+        if speech_detected and self.temp_end:
+            self.temp_end = 0
+        
+        if speech_detected and not self.triggered:
+            self.triggered = True
+            speech_start = max(0, self.current_sample - self.speech_pad_samples - window_size_samples)
+            return {'start': int(speech_start) if not return_seconds else round(speech_start / self.sampling_rate, time_resolution)}
+        
+        if (not speech_detected) and self.triggered:
+            if not self.temp_end:
+                self.temp_end = self.current_sample
+            if self.current_sample - self.temp_end < self.min_silence_samples:
+                return None
+            else:
+                speech_end = self.temp_end + self.speech_pad_samples - window_size_samples
+                self.temp_end = 0
+                self.triggered = False
+                return {'end': int(speech_end) if not return_seconds else round(speech_end / self.sampling_rate, time_resolution)}
+        
+        return None
+
+vad_model = None  # Not needed for energy-based VAD
 
 # ─── System Prompt ────────────────────────────────────────────────────────────
 SYSTEM_PROMPT = """You are a professional and friendly inbound customer support and sales executive for "Rudra Infotek", an IT services company.
@@ -175,7 +229,7 @@ async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     print("[Browser] New client connected")
 
-    vad_iterator = VADIterator(vad_model, sampling_rate=EXOTEL_SAMPLE_RATE, threshold=0.6, min_silence_duration_ms=VAD_SILENCE_MS)
+    vad_iterator = VADIterator(threshold=0.015, sampling_rate=EXOTEL_SAMPLE_RATE, min_silence_duration_ms=VAD_SILENCE_MS)
     speech_buffer = []
     is_speaking = False
     conversation_history = []
@@ -254,7 +308,7 @@ async def exotel_websocket(websocket: WebSocket):
     # Per-call state
     stream_sid = None
     call_sid = None
-    vad_iterator = VADIterator(vad_model, sampling_rate=EXOTEL_SAMPLE_RATE, threshold=0.6, min_silence_duration_ms=VAD_SILENCE_MS)
+    vad_iterator = VADIterator(threshold=0.015, sampling_rate=EXOTEL_SAMPLE_RATE, min_silence_duration_ms=VAD_SILENCE_MS)
     speech_buffer: list[np.ndarray] = []
     pre_roll_buffer: deque = deque(maxlen=8)  # ~256ms pre-roll buffer to prevent cutting off first syllable
     is_speaking = False
