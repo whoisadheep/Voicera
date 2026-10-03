@@ -21,3 +21,11 @@ __pycache__/
 
 # Backups
 *.bak
+
+# Firebase service account credentials
+*firebase*.json
+
+# OS files
+.DS_Store
+Thumbs.db
+

@@ -8,3 +8,4 @@ sarvamai
 httpx
 httpx-ws
 numpy
+firebase-admin

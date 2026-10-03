@@ -2,7 +2,9 @@ import os
 import requests
 from dotenv import load_dotenv
 
-# Load credentials from .env
+# Load credentials from .env (checks repo root first)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
 load_dotenv()
 API_KEY = os.getenv("EXOTEL_API_KEY")
 API_TOKEN = os.getenv("EXOTEL_API_TOKEN")
