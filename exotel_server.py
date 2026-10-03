@@ -49,7 +49,8 @@ app = FastAPI()
 # Exotel streams at 8kHz by default. We request 16kHz via ?sample-rate=16000.
 EXOTEL_SAMPLE_RATE = 16000
 FISH_SAMPLE_RATE = 16000
-VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "500"))
+VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "320"))
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
 
 
 # ─── API Clients ──────────────────────────────────────────────────────────────
@@ -228,7 +229,7 @@ def sync_groq_stream_to_queue(user_text: str, q: queue.Queue, conversation_histo
     """Background thread: stream LLM response into a queue."""
     conversation_history.append({"role": "user", "content": user_text})
     stream = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
+        model=GROQ_MODEL,
         messages=[{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history,
         stream=True,
     )
@@ -412,9 +413,9 @@ async def exotel_websocket(websocket: WebSocket):
             chunk_size = 640 if exotel_sr == 16000 else 320  # 20ms of audio (16kHz=640B, 8kHz=320B)
             bytes_per_sec = 32000 if exotel_sr == 16000 else 16000
             
-            # Send 0.5s of silence to keep Exotel WS alive while carrier line opens
+            # Send 160ms of silence to keep Exotel WS alive while carrier line opens (reduced from 500ms for faster greeting)
             silent_chunk = b'\x00' * chunk_size
-            for _ in range(25):  # 25 * 20ms = 500ms
+            for _ in range(8):  # 8 * 20ms = 160ms
                 await websocket.send_text(build_exotel_media_message(silent_chunk, stream_sid))
                 await asyncio.sleep(0.02)
             
@@ -441,7 +442,41 @@ async def exotel_websocket(websocket: WebSocket):
             is_agent_speaking = False
             agent_stopped_speaking_time = time.time()
 
-    async def process_speech(user_text: str, t0: float, t1: float):
+    async def get_sarvam_tts_ws(sr: int):
+        """Connect and pre-configure Sarvam TTS WebSocket with uncompressed linear16 PCM."""
+        api_key = os.getenv("SARVAM_API_KEY")
+        uri = "wss://api.sarvam.ai/text-to-speech/ws?model=bulbul:v3&send_completion_event=true"
+        ws = await websockets.connect(uri, additional_headers={"api-subscription-key": api_key}, ping_interval=None)
+        try:
+            await ws.send(json.dumps({
+                "type": "config",
+                "data": {
+                    "language_code": "hi-IN",
+                    "speaker": "kavya",
+                    "model": "bulbul:v3",
+                    "speech_sample_rate": sr,
+                    "output_audio_codec": "linear16"
+                }
+            }))
+            return ws
+        except BaseException:
+            await ws.close()
+            raise
+
+    async def safe_close_tts_task(task):
+        """Safely cancel warmup task and close any opened WebSocket."""
+        if not task:
+            return
+        try:
+            if not task.done():
+                task.cancel()
+            ws = await task
+            if ws:
+                await ws.close()
+        except (asyncio.CancelledError, Exception):
+            pass
+
+    async def process_speech(user_text: str, t0: float, t1: float, prewarmed_tts=None):
         """Process a complete utterance: STT → LLM → TTS → stream back to Exotel."""
         nonlocal is_agent_speaking, agent_stopped_speaking_time
 
@@ -455,6 +490,7 @@ async def exotel_websocket(websocket: WebSocket):
         tts_first_byte = False
         exotel_first_audio = False
         should_hangup = False  # Will be set True if LLM outputs [HANGUP]
+        sarvam_ws = None
 
         # 2. Send a "clear" event to stop any previous audio still playing
         try:
@@ -465,6 +501,17 @@ async def exotel_websocket(websocket: WebSocket):
         # 3. Process LLM -> Sarvam TTS -> Exotel
         is_agent_speaking = True
         try:
+            # Obtain pre-warmed TTS WebSocket or connect on the fly
+            if prewarmed_tts:
+                try:
+                    sarvam_ws = await prewarmed_tts
+                except Exception as e:
+                    print(f"[Exotel] ⚠️ Pre-warmed TTS WS unavailable ({e}), reconnecting...")
+                    sarvam_ws = None
+
+            if sarvam_ws is None:
+                sarvam_ws = await get_sarvam_tts_ws(exotel_sr)
+
             conversation_history.append({"role": "user", "content": user_text})
 
             text_q = asyncio.Queue()
@@ -473,9 +520,10 @@ async def exotel_websocket(websocket: WebSocket):
                 nonlocal should_hangup
                 try:
                     stream = await async_client.chat.completions.create(
-                        model="openai/gpt-oss-120b",
+                        model=GROQ_MODEL,
                         messages=[{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history,
                         stream=True,
+                        max_tokens=150,
                     )
                     full_reply = ""
                     async for chunk in stream:
@@ -510,145 +558,108 @@ async def exotel_websocket(websocket: WebSocket):
 
             llm_task = asyncio.create_task(generate_text())
 
-            api_key = os.getenv("SARVAM_API_KEY")
-            uri = "wss://api.sarvam.ai/text-to-speech/ws?model=bulbul:v3&send_completion_event=true"
-            
-            async with websockets.connect(uri, additional_headers={"api-subscription-key": api_key}, ping_interval=None) as sarvam_ws:
-                config_msg = {
-                    "type": "config",
-                    "data": {
-                        "language_code": "hi-IN",
-                        "speaker": "kavya",
-                        "model": "bulbul:v3",
-                        "speech_sample_rate": 16000
-                    }
-                }
-                await sarvam_ws.send(json.dumps(config_msg))
-
-                llm_finished = False
-                async def send_text_to_sarvam():
-                    nonlocal llm_finished
-                    buffer = ""
-                    try:
-                        while True:
-                            text_chunk = await text_q.get()
-                            if text_chunk is None:
-                                if any(c.isalnum() for c in buffer):
-                                    await sarvam_ws.send(json.dumps({"type": "text", "data": {"text": buffer}}))
-                                await sarvam_ws.send(json.dumps({"type": "flush"}))
-                                llm_finished = True
-                                break
-                            buffer += text_chunk
-                            if any(c.isalnum() for c in buffer) and buffer[-1] in " \n\t.!?,;:-।":
+            llm_finished = False
+            async def send_text_to_sarvam():
+                nonlocal llm_finished
+                buffer = ""
+                first_clause_sent = False
+                try:
+                    while True:
+                        text_chunk = await text_q.get()
+                        if text_chunk is None:
+                            if buffer.strip():
+                                await sarvam_ws.send(json.dumps({"type": "text", "data": {"text": buffer}}))
+                            await sarvam_ws.send(json.dumps({"type": "flush"}))
+                            llm_finished = True
+                            break
+                        buffer += text_chunk
+                        words = buffer.strip().split()
+                        if not first_clause_sent:
+                            # First clause: emit quickly on punctuation or 3+ words ending in space/punctuation
+                            if any(p in buffer for p in ".,?!।") or (len(words) >= 3 and buffer[-1] in " \t\n.,?!।"):
                                 await sarvam_ws.send(json.dumps({"type": "text", "data": {"text": buffer}}))
                                 buffer = ""
-                    except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
-                        pass
-                    except Exception as e:
-                        print(f"[Exotel] ⚠️ Error sending text to Sarvam: {e}")
+                                first_clause_sent = True
+                        else:
+                            # Subsequent clauses: emit on punctuation or 4+ words ending in space/punctuation
+                            if any(p in buffer for p in ".,?!।") or (len(words) >= 4 and buffer[-1] in " \t\n.,?!।"):
+                                await sarvam_ws.send(json.dumps({"type": "text", "data": {"text": buffer}}))
+                                buffer = ""
+                except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    print(f"[Exotel] ⚠️ Error sending text to Sarvam: {e}")
 
-                async def receive_audio_from_sarvam():
-                    ffmpeg_proc = await asyncio.create_subprocess_exec(
-                        'ffmpeg', '-f', 'mp3', '-i', 'pipe:0', '-f', 's16le', '-ar', str(exotel_sr), '-ac', '1', 'pipe:1',
-                        stdin=asyncio.subprocess.PIPE,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.DEVNULL
-                    )
+            async def stream_audio_to_exotel():
+                nonlocal exotel_first_audio, tts_first_byte, t3, t4
+                chunk_size = 640 if exotel_sr == 16000 else 320  # 20ms of audio (16kHz=640B, 8kHz=320B)
+                bytes_per_sec = 32000 if exotel_sr == 16000 else 16000
+                pcm_buffer = bytearray()
+                stream_start_time = None
+                total_bytes_sent = 0
 
-                    async def pump_mp3():
+                try:
+                    while True:
                         try:
-                            while True:
-                                try:
-                                    msg_str = await asyncio.wait_for(sarvam_ws.recv(), timeout=3.0 if llm_finished else None)
-                                except asyncio.TimeoutError:
-                                    if llm_finished:
-                                        break
-                                    continue
-                                except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
-                                    break
-                                except Exception:
-                                    break
-                                    
-                                msg = json.loads(msg_str)
-                                if msg.get("type") == "error":
-                                    print("[Exotel] Sarvam WS Error:", msg)
-                                    break
-                                if msg.get("type") == "event" and msg.get("data", {}).get("event_type") == "final":
-                                    break
-                                if msg.get("type") == "audio":
-                                    nonlocal tts_first_byte, t3
-                                    if not tts_first_byte:
-                                        t3 = time.time()
-                                        tts_first_byte = True
-                                    chunk = base64.b64decode(msg["data"]["audio"])
-                                    if ffmpeg_proc.stdin and not ffmpeg_proc.stdin.is_closing():
-                                        ffmpeg_proc.stdin.write(chunk)
-                                        await ffmpeg_proc.stdin.drain()
+                            msg_str = await asyncio.wait_for(sarvam_ws.recv(), timeout=3.0 if llm_finished else None)
+                        except asyncio.TimeoutError:
+                            if llm_finished:
+                                break
+                            continue
                         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
-                            pass
-                        except Exception as e:
-                            print(f"[Exotel] ⚠️ Error pumping MP3: {e}")
-                        finally:
-                            try:
-                                if ffmpeg_proc.stdin and not ffmpeg_proc.stdin.is_closing():
-                                    ffmpeg_proc.stdin.close()
-                            except Exception:
-                                pass
+                            break
+                        except Exception:
+                            break
 
-                    async def read_pcm():
-                        nonlocal exotel_first_audio, t4
-                        chunk_size = 640 if exotel_sr == 16000 else 320  # 20ms of audio (16kHz=640B, 8kHz=320B)
-                        bytes_per_sec = 32000 if exotel_sr == 16000 else 16000
-                        pcm_buffer = bytearray()
-                        stream_start_time = None
-                        total_bytes_sent = 0
-                        try:
-                            while True:
-                                raw = await ffmpeg_proc.stdout.read(4096)
-                                if not raw:
-                                    break
-                                pcm_buffer.extend(raw)
-                                
-                                while len(pcm_buffer) >= chunk_size:
-                                    subchunk = bytes(pcm_buffer[:chunk_size])
-                                    del pcm_buffer[:chunk_size]
-                                    
-                                    if stream_start_time is None:
-                                        stream_start_time = time.time()
-                                        t4 = time.time()
-                                        exotel_first_audio = True
-                                        
-                                    exotel_msg = build_exotel_media_message(subchunk, stream_sid)
-                                    await websocket.send_text(exotel_msg)
-                                    total_bytes_sent += chunk_size
-                                    
-                                    expected_time = total_bytes_sent / float(bytes_per_sec)
-                                    elapsed = time.time() - stream_start_time
-                                    sleep_needed = expected_time - elapsed
-                                    if sleep_needed > 0.001:
-                                        await asyncio.sleep(sleep_needed)
-                                        
-                            if len(pcm_buffer) > 0:
-                                remainder = len(pcm_buffer) % (320 if exotel_sr == 16000 else 160)
-                                if remainder != 0:
-                                    pcm_buffer.extend(b'\x00' * ((320 if exotel_sr == 16000 else 160) - remainder))
-                                exotel_msg = build_exotel_media_message(bytes(pcm_buffer), stream_sid)
+                        msg = json.loads(msg_str)
+                        if msg.get("type") == "error":
+                            print("[Exotel] Sarvam WS Error:", msg)
+                            break
+                        if msg.get("type") == "event" and msg.get("data", {}).get("event_type") == "final":
+                            break
+
+                        if msg.get("type") == "audio":
+                            if not tts_first_byte:
+                                t3 = time.time()
+                                tts_first_byte = True
+
+                            raw_pcm = base64.b64decode(msg["data"]["audio"])
+                            pcm_buffer.extend(raw_pcm)
+
+                            while len(pcm_buffer) >= chunk_size:
+                                subchunk = bytes(pcm_buffer[:chunk_size])
+                                del pcm_buffer[:chunk_size]
+
+                                if stream_start_time is None:
+                                    stream_start_time = time.time()
+                                    t4 = time.time()
+                                    exotel_first_audio = True
+
+                                exotel_msg = build_exotel_media_message(subchunk, stream_sid)
                                 await websocket.send_text(exotel_msg)
-                                total_bytes_sent += len(pcm_buffer)
-                                
+                                total_bytes_sent += chunk_size
+
                                 expected_time = total_bytes_sent / float(bytes_per_sec)
-                                elapsed = time.time() - stream_start_time if stream_start_time else 0
+                                elapsed = time.time() - stream_start_time
                                 sleep_needed = expected_time - elapsed
                                 if sleep_needed > 0.001:
                                     await asyncio.sleep(sleep_needed)
-                        except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
-                            pass
-                        except Exception as e:
-                            print(f"[Exotel] ⚠️ Error sending PCM to Exotel: {e}")
 
-                    await asyncio.gather(pump_mp3(), read_pcm(), return_exceptions=True)
+                    # Flush remaining audio
+                    if len(pcm_buffer) > 0:
+                        unit = chunk_size
+                        remainder = len(pcm_buffer) % unit
+                        if remainder != 0:
+                            pcm_buffer.extend(b'\x00' * (unit - remainder))
+                        exotel_msg = build_exotel_media_message(bytes(pcm_buffer), stream_sid)
+                        await websocket.send_text(exotel_msg)
+                        total_bytes_sent += len(pcm_buffer)
+                except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
+                    pass
+                except Exception as e:
+                    print(f"[Exotel] ⚠️ Error sending PCM to Exotel: {e}")
 
-                await asyncio.gather(llm_task, send_text_to_sarvam(), receive_audio_from_sarvam(), return_exceptions=True)
+            await asyncio.gather(llm_task, send_text_to_sarvam(), stream_audio_to_exotel(), return_exceptions=True)
 
             print(f"[Exotel] ✅ Response streamed ({time.time() - t0:.2f}s total)")
             print(f"[Exotel] ⏱️ TTFA breakdown — STT:{t1-t0:.2f}s | LLM-first-token:{t2-t1:.2f}s | TTS-first-byte:{t3-t2:.2f}s | sent-to-exotel:{t4-t3:.2f}s | TOTAL:{t4-t0:.2f}s")
@@ -671,6 +682,11 @@ async def exotel_websocket(websocket: WebSocket):
         except Exception as e:
             print(f"[Exotel] ⚠️ Error streaming response: {e}")
         finally:
+            if sarvam_ws:
+                try:
+                    await sarvam_ws.close()
+                except Exception:
+                    pass
             is_agent_speaking = False
             agent_stopped_speaking_time = time.time()
 
@@ -678,6 +694,7 @@ async def exotel_websocket(websocket: WebSocket):
         stt_queue = None
         stt_task = None
         stt_t0_ref = [0.0]
+        tts_warmup_task = None
 
         async def run_stt_stream(q: asyncio.Queue, t0_ref: list) -> str:
             try:
@@ -845,6 +862,11 @@ async def exotel_websocket(websocket: WebSocket):
                             is_speaking = True
                             speech_buffer.clear()
                             
+                            # Pre-warm TTS WebSocket in background while caller speaks
+                            if tts_warmup_task:
+                                asyncio.create_task(safe_close_tts_task(tts_warmup_task))
+                            tts_warmup_task = asyncio.create_task(get_sarvam_tts_ws(exotel_sr))
+
                             stt_queue = asyncio.Queue()
                             stt_t0_ref[0] = time.time()
                             
@@ -867,12 +889,18 @@ async def exotel_websocket(websocket: WebSocket):
                                     print("[Exotel] ⏭️  Too short, skipping.")
                                     if stt_task and not stt_task.done():
                                         stt_task.cancel()
+                                    if tts_warmup_task:
+                                        asyncio.create_task(safe_close_tts_task(tts_warmup_task))
+                                    tts_warmup_task = None
                                     stt_queue = None
                                 else:
                                     if stt_queue is not None:
                                         stt_queue.put_nowait(None)
                                         
-                                        async def process_wrapper(task, t0):
+                                        warmed_tts = tts_warmup_task
+                                        tts_warmup_task = None
+
+                                        async def process_wrapper(task, t0, prewarmed):
                                             try:
                                                 t_end = time.time()
                                                 text = await task
@@ -882,20 +910,28 @@ async def exotel_websocket(websocket: WebSocket):
                                                     spam_keywords = ["bulk sms", "बल्क एसएमएस", "credit card", "loan", "लोन", "क्रेडिट कार्ड", "मैसेजिंग सेवा", "आरसीएस", "rcs", "टेलीमार्केटिंग"]
                                                     if any(k in text.lower() for k in spam_keywords):
                                                         print("[Exotel] 🚫 SPAM DETECTED. Hanging up immediately to save credits.")
+                                                        if prewarmed:
+                                                            asyncio.create_task(safe_close_tts_task(prewarmed))
                                                         await hangup_call_via_api(call_sid)
                                                         try:
                                                             await websocket.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
                                                         except Exception:
                                                             pass
                                                         return
-                                                    await process_speech(text, t0, t_done)
+                                                    await process_speech(text, t0, t_done, prewarmed)
+                                                else:
+                                                    if prewarmed:
+                                                        asyncio.create_task(safe_close_tts_task(prewarmed))
                                             except asyncio.CancelledError:
-                                                pass
+                                                if prewarmed:
+                                                    asyncio.create_task(safe_close_tts_task(prewarmed))
                                             except Exception as e:
+                                                if prewarmed:
+                                                    asyncio.create_task(safe_close_tts_task(prewarmed))
                                                 if str(e).strip():
                                                     print(f"Error in STT task: {e}")
                                                 
-                                        asyncio.create_task(process_wrapper(stt_task, stt_t0_ref[0]))
+                                        asyncio.create_task(process_wrapper(stt_task, stt_t0_ref[0], warmed_tts))
                                         stt_queue = None
 
                     offset += 512
@@ -904,6 +940,8 @@ async def exotel_websocket(websocket: WebSocket):
                 print(f"[Exotel] 📴 Call ended (stream_sid={stream_sid})")
                 if stt_task and not stt_task.done():
                     stt_task.cancel()
+                if tts_warmup_task:
+                    asyncio.create_task(safe_close_tts_task(tts_warmup_task))
                 
                 # Push call data to GridCRM
                 if conversation_history:
@@ -930,6 +968,8 @@ async def exotel_websocket(websocket: WebSocket):
     except (WebSocketDisconnect, websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
         if stt_task and not stt_task.done():
             stt_task.cancel()
+        if tts_warmup_task:
+            asyncio.create_task(safe_close_tts_task(tts_warmup_task))
         print(f"[Exotel] 📴 WebSocket disconnected (stream_sid={stream_sid})")
         # Also push to CRM on unexpected disconnect
         if conversation_history:
@@ -940,6 +980,8 @@ async def exotel_websocket(websocket: WebSocket):
     except Exception as e:
         if stt_task and not stt_task.done():
             stt_task.cancel()
+        if tts_warmup_task:
+            asyncio.create_task(safe_close_tts_task(tts_warmup_task))
         error_str = str(e).lower()
         if any(x in error_str for x in ["timeout", "connection", "network", "host", "resolve", "unreachable"]):
             print(f"[Exotel] 🔌 Network Error: Internet connection lost ({e.__class__.__name__})")
