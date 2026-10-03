@@ -398,6 +398,7 @@ async def exotel_websocket(websocket: WebSocket):
     conversation_history = []
     is_agent_speaking = False  # Track if we're currently streaming TTS back
     agent_stopped_speaking_time = 0.0  # Track when TTS finished for echo cooldown
+    last_activity_time = time.time()  # Track last speech/agent activity to prevent silence race conditions
 
     # Asyncio event loop reference for sending from threads
     loop = asyncio.get_event_loop()
@@ -457,6 +458,7 @@ async def exotel_websocket(websocket: WebSocket):
         finally:
             is_agent_speaking = False
             agent_stopped_speaking_time = time.time()
+            last_activity_time = time.time()
 
     async def get_sarvam_tts_ws(sr: int):
         """Connect and pre-configure Sarvam TTS WebSocket with uncompressed linear16 PCM."""
@@ -710,6 +712,7 @@ async def exotel_websocket(websocket: WebSocket):
                     pass
             is_agent_speaking = False
             agent_stopped_speaking_time = time.time()
+            last_activity_time = time.time()
 
     try:
         stt_queue = None
@@ -831,12 +834,23 @@ async def exotel_websocket(websocket: WebSocket):
             elif event == "media":
                 if is_agent_speaking or time.time() - agent_stopped_speaking_time < 0.5:
                     # Skip incoming audio while agent is speaking and for 500ms after (echo prevention)
+                    last_activity_time = time.time()
                     continue
 
-                # If caller has been silent for 8 seconds since we last spoke, prompt them
-                if not is_speaking and agent_stopped_speaking_time > 0 and (time.time() - agent_stopped_speaking_time > 8.0):
-                    print("[Exotel] 🤫 Caller is silent for 8 seconds, injecting [SILENCE] to LLM.")
-                    agent_stopped_speaking_time = time.time()  # Reset to prevent multiple immediate triggers
+                if is_speaking:
+                    last_activity_time = time.time()
+
+                # If caller has been silent for 10 seconds since any speech or agent stopped, prompt them
+                if (
+                    not is_speaking
+                    and not is_agent_speaking
+                    and (stt_task is None or stt_task.done())
+                    and agent_stopped_speaking_time > 0
+                    and (time.time() - last_activity_time > 10.0)
+                ):
+                    print("[Exotel] 🤫 Caller is silent for 10 seconds, injecting [SILENCE] to LLM.")
+                    last_activity_time = time.time()
+                    agent_stopped_speaking_time = time.time()
                     asyncio.create_task(process_speech("[SILENCE]", time.time(), time.time()))
                     continue
 
@@ -881,6 +895,7 @@ async def exotel_websocket(websocket: WebSocket):
                     if vad_event:
                         if "start" in vad_event:
                             is_speaking = True
+                            last_activity_time = time.time()
                             speech_buffer.clear()
                             
                             # Pre-warm TTS WebSocket in background while caller speaks
@@ -901,6 +916,7 @@ async def exotel_websocket(websocket: WebSocket):
 
                         if "end" in vad_event:
                             is_speaking = False
+                            last_activity_time = time.time()
                             print("[Exotel] 🔴 Caller stopped speaking, processing...")
                             pre_roll_buffer.clear()
                             if speech_buffer:
