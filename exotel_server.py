@@ -28,8 +28,9 @@ import websockets
 import websockets.exceptions
 import logging
 
-# Silence noisy websockets tracebacks when Exotel abruptly drops connection (e.g. caller hangs up)
+# Silence noisy websockets/asyncio tracebacks when clients abruptly disconnect
 logging.getLogger("websockets").setLevel(logging.CRITICAL)
+logging.getLogger("asyncio").setLevel(logging.CRITICAL)
 from groq import Groq, AsyncGroq
 from fishaudio import FishAudio
 from fishaudio.types import TTSConfig
@@ -275,17 +276,17 @@ async def hangup_call_via_api(call_sid: str):
         api_key = os.environ.get("EXOTEL_API_KEY")
         api_token = os.environ.get("EXOTEL_API_TOKEN")
         if not all([account_sid, api_key, api_token]):
-            print(f"[Hangup] ⚠️ Missing credentials — cannot hang up via API")
+            print("[GATEWAY] Warning: Telephony credentials not configured — skipping API termination")
             return
         api_url = f"https://api.exotel.com/v1/Accounts/{account_sid}/Calls/{call_sid}.json"
         async with httpx.AsyncClient() as http:
             resp = await http.post(api_url, auth=(api_key, api_token), data={"Status": "completed"}, timeout=5.0)
             if resp.status_code == 200:
-                print(f"[Hangup] ✅ Call {call_sid} terminated via Exotel API")
+                print(f"[GATEWAY] Call {call_sid} terminated via telephony API")
             else:
-                print(f"[Hangup] ⚠️ Exotel API returned {resp.status_code}: {resp.text[:200]}")
+                print(f"[GATEWAY] Warning: API returned status {resp.status_code}: {resp.text[:200]}")
     except Exception as e:
-        print(f"[Hangup] ❌ Error hanging up call: {e}")
+        print(f"[GATEWAY] Error terminating call: {e}")
 
 
 # ─── Web Phone UI & Health check ─────────────────────────────────────────────
@@ -308,7 +309,7 @@ async def health_check():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
-    print("[Browser] New client connected")
+    print("[BROWSER] New client connected")
 
     vad_iterator = VADIterator(threshold=0.015, sampling_rate=EXOTEL_SAMPLE_RATE, min_silence_duration_ms=VAD_SILENCE_MS)
     speech_buffer = []
@@ -334,14 +335,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     is_speaking = True
                     speech_buffer.clear()
                     speech_buffer.append(chunk)
-                    print("[Browser] User started speaking...")
+                    print("[BROWSER] User started speaking...")
                 if "end" in event:
                     is_speaking = False
-                    print("[Browser] User stopped speaking, processing...")
+                    print("[BROWSER] User stopped speaking, processing...")
                     audio = np.concatenate(speech_buffer)
 
                     if len(audio) / EXOTEL_SAMPLE_RATE < 0.4:
-                        print("[Browser] Too short, ignoring.")
+                        print("[BROWSER] Too short, ignoring.")
                         continue
 
                     wav_bytes = float32_to_wav_bytes(audio, EXOTEL_SAMPLE_RATE)
@@ -350,7 +351,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         model="whisper-large-v3-turbo",
                     )
                     user_text = resp.text.strip()
-                    print(f"[Browser] User: {user_text}")
+                    print(f"[BROWSER] User: {user_text}")
 
                     if not user_text:
                         continue
@@ -367,7 +368,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         await websocket.send_bytes(audio_chunk)
 
     except Exception as e:
-        print(f"[Browser] Client disconnected: {e}")
+        print(f"[BROWSER] Client disconnected: {e}")
 
 
 # ─── Exotel Inbound Call WebSocket ────────────────────────────────────────────
@@ -384,7 +385,7 @@ async def exotel_websocket(websocket: WebSocket):
       5. Exotel sends {"event": "stop"} when call ends
     """
     await websocket.accept()
-    print("[Exotel] ✅ New call connected via WebSocket")
+    print("[CALL] Inbound connection accepted via WebSocket")
 
     # Per-call state
     stream_sid = None
@@ -447,14 +448,14 @@ async def exotel_websocket(websocket: WebSocket):
                 if sleep_needed > 0.001:
                     await asyncio.sleep(sleep_needed)
 
-            print(f"[Exotel] ✅ Greeting sent ({exotel_sr}Hz)")
+            print(f"[CALL] Initial greeting dispatched ({exotel_sr}Hz)")
             if stream_sid and str(stream_sid).startswith("web_"):
                 try:
                     await websocket.send_text(json.dumps({"event": "transcript", "role": "assistant", "text": greeting}))
                 except Exception:
                     pass
         except Exception as e:
-            print(f"[Exotel] ⚠️ Error sending greeting: {e}")
+            print(f"[CALL] Error sending greeting: {e}")
         finally:
             is_agent_speaking = False
             agent_stopped_speaking_time = time.time()
@@ -524,7 +525,7 @@ async def exotel_websocket(websocket: WebSocket):
                 try:
                     sarvam_ws = await prewarmed_tts
                 except Exception as e:
-                    print(f"[Exotel] ⚠️ Pre-warmed TTS WS unavailable ({e}), reconnecting...")
+                    print(f"[TTS] Pre-warmed socket unavailable ({e}) — establishing new connection")
                     sarvam_ws = None
 
             if sarvam_ws is None:
@@ -561,10 +562,10 @@ async def exotel_websocket(websocket: WebSocket):
                     if HANGUP_TAG in full_reply:
                         cleaned = full_reply.replace(HANGUP_TAG, "").strip()
                         should_hangup = True
-                        print(f"[Exotel] 🚫 Scam/Spam detected — LLM signaled instant HANGUP")
+                        print("[SECURITY] Spam pattern detected by model — initiating immediate disconnect")
                         full_reply = cleaned
                     conversation_history.append({"role": "assistant", "content": full_reply})
-                    print(f"[Exotel] 🤖 Agent replied: {full_reply}")
+                    print(f"[AGENT] {full_reply}")
                     if stream_sid and str(stream_sid).startswith("web_"):
                         try:
                             await websocket.send_text(json.dumps({"event": "transcript", "role": "assistant", "text": full_reply}))
@@ -574,9 +575,9 @@ async def exotel_websocket(websocket: WebSocket):
                     await text_q.put(None)
                 except Exception as e:
                     if "connect" in str(e).lower() or "timeout" in str(e).lower():
-                        print(f"[Exotel] 🔌 Network Error in LLM stream: Connection lost.")
+                        print("[LLM] Network connection error in stream")
                     else:
-                        print(f"[Exotel] ⚠️ Error in LLM stream: {e.__class__.__name__}")
+                        print(f"[LLM] Error in stream: {e.__class__.__name__}")
                     await text_q.put(None)
 
             llm_task = asyncio.create_task(generate_text())
@@ -611,7 +612,7 @@ async def exotel_websocket(websocket: WebSocket):
                 except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, asyncio.CancelledError):
                     pass
                 except Exception as e:
-                    print(f"[Exotel] ⚠️ Error sending text to Sarvam: {e}")
+                    print(f"[TTS] Error streaming text payload: {e}")
 
             async def stream_audio_to_exotel():
                 nonlocal exotel_first_audio, tts_first_byte, t3, t4
@@ -636,7 +637,7 @@ async def exotel_websocket(websocket: WebSocket):
 
                         msg = json.loads(msg_str)
                         if msg.get("type") == "error":
-                            print("[Exotel] Sarvam WS Error:", msg)
+                            print("[TTS] WebSocket error:", msg)
                             break
                         if msg.get("type") == "event" and msg.get("data", {}).get("event_type") == "final":
                             break
@@ -680,30 +681,30 @@ async def exotel_websocket(websocket: WebSocket):
                 except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
                     pass
                 except Exception as e:
-                    print(f"[Exotel] ⚠️ Error sending PCM to Exotel: {e}")
+                    print(f"[AUDIO] Error sending PCM audio frames: {e}")
 
             await asyncio.gather(llm_task, send_text_to_sarvam(), stream_audio_to_exotel(), return_exceptions=True)
 
-            print(f"[Exotel] ✅ Response streamed ({time.time() - t0:.2f}s total)")
-            print(f"[Exotel] ⏱️ TTFA breakdown — STT:{t1-t0:.2f}s | LLM-first-token:{t2-t1:.2f}s | TTS-first-byte:{t3-t2:.2f}s | sent-to-exotel:{t4-t3:.2f}s | TOTAL:{t4-t0:.2f}s")
+            print(f"[PERF] Response streamed ({time.time() - t0:.2f}s total)")
+            print(f"[PERF] TTFA breakdown — STT: {t1-t0:.2f}s | LLM: {t2-t1:.2f}s | TTS: {t3-t2:.2f}s | Audio: {t4-t3:.2f}s | Total: {t4-t0:.2f}s")
 
             # ── Scam / Spam instant hangup ──────────────────────────────
             if should_hangup:
-                print(f"[Exotel] 🚫 Dropping spam/scam call immediately via API...")
-                # Terminate the call via Exotel REST API
+                print(f"[SECURITY] Disconnecting flagged call immediately via API...")
+                # Terminate the call via telephony REST API
                 await hangup_call_via_api(call_sid)
                 # Close the WebSocket from our side
                 try:
                     await websocket.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
                 except Exception:
                     pass
-                print(f"[Exotel] ✅ Spam call terminated (stream_sid={stream_sid})")
+                print(f"[SECURITY] Flagged call disconnected (session={stream_sid})")
                 return  # Exit process_speech — the main loop will handle WS close
 
         except (websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError, WebSocketDisconnect, asyncio.CancelledError):
             pass
         except Exception as e:
-            print(f"[Exotel] ⚠️ Error streaming response: {e}")
+            print(f"[VOICE] Error streaming response: {e}")
         finally:
             if sarvam_ws:
                 try:
@@ -739,21 +740,21 @@ async def exotel_websocket(websocket: WebSocket):
                         b64 = base64.b64encode(pcm_int16.tobytes()).decode('ascii')
                         await stt_ws.transcribe(b64)
             except (asyncio.CancelledError, websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError) as e:
-                print(f"[STT Stream] Silently returning empty due to: {e.__class__.__name__}")
+                print(f"[STT] Stream closed: {e.__class__.__name__}")
                 return ""
             except Exception as e:
                 if str(e).strip():
-                    print(f"[STT Stream] Error: {e}")
+                    print(f"[STT] Stream error: {e}")
                 return ""
 
         while True:
-            # All Exotel messages are JSON text
+            # All telephony messages are JSON text
             raw = await websocket.receive_text()
             msg = json.loads(raw)
             event = msg.get("event")
 
             if event == "connected":
-                print("[Exotel] 📞 WebSocket connected, waiting for stream start...")
+                print("[CALL] WebSocket connected, awaiting stream initiation...")
 
             elif event == "start":
                 stream_sid = msg["start"]["stream_sid"]
@@ -761,15 +762,15 @@ async def exotel_websocket(websocket: WebSocket):
                 custom_params = msg["start"].get("custom_parameters", {})
                 media_format = msg["start"].get("media_format", {})
                 
-                # Exotel strictly requires 'sample-rate' (with hyphen) in URL to switch to 16kHz; 'samplerate' without hyphen is ignored by Exotel and stays 8kHz
+                # Telephony gateway requires 'sample-rate' (with hyphen) in URL to switch to 16kHz
                 sr_param = str(custom_params.get("sample-rate", ""))
                 if media_format.get("sample_rate") == 16000 or sr_param == "16000":
                     exotel_sr = 16000
                 else:
                     exotel_sr = 8000
-                print(f"[Exotel] 🎙️  Stream started — stream_sid={stream_sid}, call_sid={call_sid}, sample_rate={exotel_sr}Hz")
-                print(f"[Exotel]    Custom params: {custom_params}")
-                # Method 1: Check custom_parameters (works with VoiceLink or custom Exotel flows)
+                print(f"[CALL] Stream initialized — session={stream_sid}, call_id={call_sid}, rate={exotel_sr}Hz")
+                print(f"[CALL] Metadata: {custom_params}")
+                # Method 1: Check custom_parameters
                 caller_phone = (
                     custom_params.get("From")
                     or custom_params.get("from")
@@ -780,7 +781,7 @@ async def exotel_websocket(websocket: WebSocket):
                 )
 
                 if caller_phone in ["01409082082", "1409082082", "+911409082082", "+9101409082082"]:
-                    print(f"[Exotel] 🚫 Known spam number ({caller_phone}) detected from params. Hanging up immediately.")
+                    print(f"[SECURITY] Known spam number ({caller_phone}) identified. Disconnecting call.")
                     await hangup_call_via_api(call_sid)
                     try:
                         await websocket.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
@@ -791,7 +792,7 @@ async def exotel_websocket(websocket: WebSocket):
                 # Send greeting IMMEDIATELY if not spam
                 asyncio.create_task(send_greeting())
 
-                # Method 2: Fetch from Exotel REST API in background (doesn't block anything)
+                # Method 2: Fetch from telephony REST API in background (doesn't block anything)
                 if not caller_phone and call_sid and call_sid != "unknown" and not str(call_sid).startswith("web_"):
                     async def fetch_caller_phone():
                         nonlocal caller_phone
@@ -810,9 +811,9 @@ async def exotel_websocket(websocket: WebSocket):
                                             or call_details.get("Call", {}).get("CallerNumber", None)
                                         )
                                         if caller_phone:
-                                            print(f"[Exotel] 📱 Caller phone: {caller_phone}")
+                                            print(f"[CALL] Caller number: {caller_phone}")
                                             if caller_phone in ["01409082082", "1409082082", "+911409082082", "+9101409082082"]:
-                                                print("[Exotel] 🚫 Known spam number detected. Hanging up immediately.")
+                                                print(f"[SECURITY] Known spam number ({caller_phone}) identified. Disconnecting call.")
                                                 await hangup_call_via_api(call_sid)
                                                 try:
                                                     await websocket.send_text(json.dumps({"event": "stop", "stream_sid": stream_sid}))
@@ -820,16 +821,16 @@ async def exotel_websocket(websocket: WebSocket):
                                                     pass
                                                 return
                                         else:
-                                            print(f"[Exotel] ⚠️ Phone not in API response. Keys: {list(call_details.get('Call', {}).keys())}")
+                                            print(f"[GATEWAY] Warning: Phone missing in API payload. Keys: {list(call_details.get('Call', {}).keys())}")
                                     else:
-                                        print(f"[Exotel] ⚠️ Call details API returned {resp.status_code}: {resp.text[:200]}")
+                                        print(f"[GATEWAY] Warning: Call details API returned {resp.status_code}: {resp.text[:200]}")
                         except httpx.RequestError as e:
-                            print(f"[Exotel] 🔌 Network Error: Could not reach Exotel API to fetch phone.")
+                            print(f"[GATEWAY] Network error: Could not reach API to fetch caller phone")
                         except Exception as e:
-                            print(f"[Exotel] ⚠️ Could not fetch caller phone from API: {e.__class__.__name__}")
+                            print(f"[GATEWAY] Warning: Could not fetch caller phone from API: {e.__class__.__name__}")
                     asyncio.create_task(fetch_caller_phone())
                 elif caller_phone:
-                    print(f"[Exotel] 📱 Caller phone: {caller_phone}")
+                    print(f"[CALL] Caller number: {caller_phone}")
 
             elif event == "media":
                 if is_agent_speaking or time.time() - agent_stopped_speaking_time < 0.5:
@@ -848,14 +849,14 @@ async def exotel_websocket(websocket: WebSocket):
                     and agent_stopped_speaking_time > 0
                     and (time.time() - last_activity_time > 10.0)
                 ):
-                    print("[Exotel] 🤫 Caller is silent for 10 seconds, injecting [SILENCE] to LLM.")
+                    print("[VOICE] Caller silence threshold reached (10s), prompting caller...")
                     last_activity_time = time.time()
                     agent_stopped_speaking_time = time.time()
                     asyncio.create_task(process_speech("[SILENCE]", time.time(), time.time()))
                     continue
 
 
-                # Decode base64 PCM audio from Exotel
+                # Decode base64 PCM audio from telephony stream
                 payload = msg["media"]["payload"]
                 pcm_bytes = base64.b64decode(payload)
 
@@ -912,18 +913,18 @@ async def exotel_websocket(websocket: WebSocket):
                                 stt_queue.put_nowait(slice_arr)
                                 
                             stt_task = asyncio.create_task(run_stt_stream(stt_queue, stt_t0_ref))
-                            print("[Exotel] 🟢 Caller started speaking...")
+                            print("[VOICE] Speech detected from caller...")
 
                         if "end" in vad_event:
                             is_speaking = False
                             last_activity_time = time.time()
-                            print("[Exotel] 🔴 Caller stopped speaking, processing...")
+                            print("[VOICE] Caller speech ended, processing transcription...")
                             pre_roll_buffer.clear()
                             if speech_buffer:
                                 audio = np.concatenate(speech_buffer)
 
                                 if len(audio) / EXOTEL_SAMPLE_RATE < 0.4:
-                                    print("[Exotel] ⏭️  Too short, skipping.")
+                                    print("[VOICE] Utterance below duration threshold (<0.4s), discarded.")
                                     if stt_task and not stt_task.done():
                                         stt_task.cancel()
                                     if tts_warmup_task:
@@ -943,7 +944,7 @@ async def exotel_websocket(websocket: WebSocket):
                                                 text = await task
                                                 t_done = time.time()
                                                 if text:
-                                                    print(f"[Exotel] 🗣️  Caller: {text}  (Streaming STT finalized {t_done - t_end:.2f}s after speech ended)")
+                                                    print(f"[STT] Caller: {text} (finalized {t_done - t_end:.2f}s post-speech)")
                                                     if stream_sid and str(stream_sid).startswith("web_"):
                                                         try:
                                                             await websocket.send_text(json.dumps({"event": "transcript", "role": "user", "text": text}))
@@ -951,7 +952,7 @@ async def exotel_websocket(websocket: WebSocket):
                                                             pass
                                                     spam_keywords = ["bulk sms", "बल्क एसएमएस", "credit card", "loan", "लोन", "क्रेडिट कार्ड", "मैसेजिंग सेवा", "आरसीएस", "rcs", "टेलीमार्केटिंग"]
                                                     if any(k in text.lower() for k in spam_keywords):
-                                                        print("[Exotel] 🚫 SPAM DETECTED. Hanging up immediately to save credits.")
+                                                        print("[SECURITY] Spam keywords matched. Terminating call.")
                                                         if prewarmed:
                                                             asyncio.create_task(safe_close_tts_task(prewarmed))
                                                         await hangup_call_via_api(call_sid)
@@ -971,7 +972,7 @@ async def exotel_websocket(websocket: WebSocket):
                                                 if prewarmed:
                                                     asyncio.create_task(safe_close_tts_task(prewarmed))
                                                 if str(e).strip():
-                                                    print(f"Error in STT task: {e}")
+                                                    print(f"[STT] Task error: {e}")
                                                 
                                         asyncio.create_task(process_wrapper(stt_task, stt_t0_ref[0], warmed_tts))
                                         stt_queue = None
@@ -979,7 +980,7 @@ async def exotel_websocket(websocket: WebSocket):
                     offset += 512
 
             elif event == "stop":
-                print(f"[Exotel] 📴 Call ended (stream_sid={stream_sid})")
+                print(f"[CALL] Call session terminated (session={stream_sid})")
                 if stt_task and not stt_task.done():
                     stt_task.cancel()
                 if tts_warmup_task:
@@ -987,38 +988,38 @@ async def exotel_websocket(websocket: WebSocket):
                 
                 # Push call data to GridCRM
                 if conversation_history:
-                    print("[CRM] 📤 Pushing call data to GridCRM...")
+                    print("[CRM] Dispatching call payload to GridCRM...")
                     try:
                         await push_to_gridcrm(
                             conversation_history=conversation_history,
                             caller_phone=caller_phone,
                         )
                     except Exception as e:
-                        print(f"[CRM] ❌ Error pushing to CRM: {e}")
+                        print(f"[CRM] Error syncing with GridCRM: {e}")
                 else:
-                    print("[CRM] ⏭️ No conversation data — skipping CRM push")
+                    print("[CRM] No conversation history recorded. Skipping CRM dispatch.")
                 
                 break
 
             elif event == "dtmf":
                 digit = msg.get("dtmf", {}).get("digit", "?")
-                print(f"[Exotel] 🔢 DTMF pressed: {digit}")
+                print(f"[CALL] DTMF input received: {digit}")
 
             else:
-                print(f"[Exotel] ❓ Unknown event: {event}")
+                print(f"[CALL] Unrecognized event: {event}")
 
     except (WebSocketDisconnect, websockets.exceptions.ConnectionClosed, websockets.exceptions.ConnectionClosedError):
         if stt_task and not stt_task.done():
             stt_task.cancel()
         if tts_warmup_task:
             asyncio.create_task(safe_close_tts_task(tts_warmup_task))
-        print(f"[Exotel] 📴 WebSocket disconnected (stream_sid={stream_sid})")
+        print(f"[CALL] WebSocket connection closed (session={stream_sid})")
         # Also push to CRM on unexpected disconnect
         if conversation_history:
             try:
                 await push_to_gridcrm(conversation_history=conversation_history, caller_phone=caller_phone)
             except Exception as e:
-                print(f"[CRM] ❌ Error pushing to CRM on disconnect: {e}")
+                print(f"[CRM] Error syncing with GridCRM on disconnect: {e}")
     except Exception as e:
         if stt_task and not stt_task.done():
             stt_task.cancel()
@@ -1026,9 +1027,9 @@ async def exotel_websocket(websocket: WebSocket):
             asyncio.create_task(safe_close_tts_task(tts_warmup_task))
         error_str = str(e).lower()
         if any(x in error_str for x in ["timeout", "connection", "network", "host", "resolve", "unreachable"]):
-            print(f"[Exotel] 🔌 Network Error: Internet connection lost ({e.__class__.__name__})")
+            print(f"[NETWORK] Connection lost ({e.__class__.__name__})")
         else:
-            print(f"[Exotel] ❌ Unexpected Error: {e.__class__.__name__} - {str(e)}")
+            print(f"[ERROR] Unexpected exception: {e.__class__.__name__} - {str(e)}")
 
 
 # ─── Trigger an outbound call (optional utility) ─────────────────────────────

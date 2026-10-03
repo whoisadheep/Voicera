@@ -49,10 +49,10 @@ def init_firebase():
             cred = credentials.Certificate(cred_dict)
             firebase_admin.initialize_app(cred)
             _firebase_initialized = True
-            print("[CRM] ✅ Firebase initialized from GRIDCRM_FIREBASE_JSON env var")
+            print("[CRM] Firebase initialized from GRIDCRM_FIREBASE_JSON")
             return True
         except Exception as e:
-            print(f"[CRM] ❌ Failed to init Firebase from JSON env var: {e}")
+            print(f"[CRM] Error initializing Firebase from JSON: {e}")
 
     # Option 2: File path to service account JSON
     json_path = os.environ.get("GRIDCRM_FIREBASE_JSON_PATH")
@@ -61,12 +61,12 @@ def init_firebase():
             cred = credentials.Certificate(json_path)
             firebase_admin.initialize_app(cred)
             _firebase_initialized = True
-            print(f"[CRM] ✅ Firebase initialized from {json_path}")
+            print(f"[CRM] Firebase initialized from {json_path}")
             return True
         except Exception as e:
-            print(f"[CRM] ❌ Failed to init Firebase from file: {e}")
+            print(f"[CRM] Error initializing Firebase from file: {e}")
 
-    print("[CRM] ⚠️ Firebase not initialized — set GRIDCRM_FIREBASE_JSON or GRIDCRM_FIREBASE_JSON_PATH")
+    print("[CRM] Warning: Firebase credentials not found (set GRIDCRM_FIREBASE_JSON or GRIDCRM_FIREBASE_JSON_PATH)")
     return False
 
 
@@ -140,18 +140,18 @@ async def extract_call_data(conversation_history: list[dict]) -> Optional[dict]:
         # Don't push empty/useless calls (e.g. if they just say "hello" and hang up)
         problem = data.get('problem_description', '')
         if not problem or problem == "No description available" or len(problem) < 5 or data.get('call_type') == 'Other' and not data.get('customer_name'):
-             print(f"[CRM] ⏭️ Skipping CRM push: Insufficient data extracted (problem: '{problem}')")
+             print(f"[CRM] Insufficient data extracted (problem: '{problem}'). Skipping CRM sync.")
              return None
 
-        print(f"[CRM] 📋 Extracted: name={data.get('customer_name')}, "
+        print(f"[CRM] Extracted: name={data.get('customer_name')}, "
               f"type={data.get('call_type')}, priority={data.get('priority')}, "
               f"problem={problem[:80]}...")
         return data
     except Exception as e:
         if "connect" in str(e).lower() or "timeout" in str(e).lower() or "network" in str(e).lower():
-            print(f"[CRM] 🔌 Network Error: Could not reach API for data extraction.")
+            print(f"[CRM] Network error: Could not reach LLM extraction service")
         else:
-            print(f"[CRM] ❌ Extraction failed: {e.__class__.__name__} - {str(e)}")
+            print(f"[CRM] Extraction error: {e.__class__.__name__} - {str(e)}")
         return None
 
 
@@ -165,7 +165,7 @@ async def push_to_gridcrm(
     
     This function:
       1. Uses LLM to extract customer_name, call_type, problem_description, priority
-      2. Uses caller_phone from Exotel/VoiceLink metadata
+      2. Uses caller_phone from call metadata
       3. Finds or creates a customer document
       4. Creates a call document
       5. Creates a call_updates audit log entry
@@ -174,12 +174,12 @@ async def push_to_gridcrm(
     
     Args:
         conversation_history: The full conversation from the call
-        caller_phone: Phone number from Exotel/VoiceLink (auto-detected from call metadata)
+        caller_phone: Phone number from call metadata
     """
     # Get ownerId from env — this ties data to your GridCRM admin account
     owner_id = os.environ.get("GRIDCRM_OWNER_ID")
     if not owner_id:
-        print("[CRM] ⚠️ GRIDCRM_OWNER_ID not set — cannot push to CRM. Skipping.")
+        print("[CRM] Warning: GRIDCRM_OWNER_ID not configured. Skipping CRM sync.")
         return
 
     if not init_firebase():
@@ -188,7 +188,7 @@ async def push_to_gridcrm(
     # Step 1: Extract structured data from conversation
     extracted = await extract_call_data(conversation_history)
     if not extracted:
-        print("[CRM] ⚠️ Could not extract data from conversation. Skipping CRM push.")
+        print("[CRM] Warning: Could not extract data from conversation. Skipping CRM sync.")
         return
 
     customer_name = extracted.get("customer_name") or "Unknown Customer"
@@ -221,7 +221,7 @@ async def push_to_gridcrm(
             owner_id, customer_name, phone, call_type, problem_description, priority, raw_input
         )
     except Exception as e:
-        print(f"[CRM] ❌ Failed to push to GridCRM: {e}")
+        print(f"[CRM] Error writing to GridCRM: {e}")
         import traceback
         traceback.print_exc()
 
@@ -256,7 +256,7 @@ def _write_to_firestore(
             if customer_name != "Unknown Customer" and customer_data.get("name") in (None, "", "Unknown Customer", "Unknown"):
                 customer_doc.reference.update({"name": customer_name})
                 customer_data["name"] = customer_name
-            print(f"[CRM] 👤 Found existing customer: {customer_data.get('name')} ({phone})")
+            print(f"[CRM] Matched existing customer: {customer_data.get('name')} ({phone})")
 
     if not customer_id:
         # Create new customer (same schema as GridCRM routes.py lines 376-383)
@@ -268,7 +268,7 @@ def _write_to_firestore(
             "created_at": firestore.SERVER_TIMESTAMP,
         })
         customer_id = new_ref.id
-        print(f"[CRM] 👤 Created new customer: {customer_name} ({phone or 'no phone'})")
+        print(f"[CRM] Created new customer record: {customer_name} ({phone or 'no phone'})")
 
     # Step 3: Create call document (same schema as GridCRM routes.py lines 387-403)
     call_ref = db.collection("calls").document()
@@ -290,7 +290,7 @@ def _write_to_firestore(
         "updated_at": firestore.SERVER_TIMESTAMP,
     }
     call_ref.set(call_data)
-    print(f"[CRM] 📞 Created call: {customer_name} | {call_type} | {priority} priority")
+    print(f"[CRM] Created call ticket: {customer_name} | {call_type} | {priority} priority")
 
     # Step 4: Create audit log entry (same as GridCRM routes.py lines 405-411)
     db.collection("call_updates").add({
@@ -300,4 +300,4 @@ def _write_to_firestore(
         "status_change": "Pending",
         "created_at": firestore.SERVER_TIMESTAMP,
     })
-    print(f"[CRM] ✅ Call successfully pushed to GridCRM (call_id={call_ref.id})")
+    print(f"[CRM] Call successfully synced to GridCRM (call_id={call_ref.id})")
