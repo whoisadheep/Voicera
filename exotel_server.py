@@ -269,11 +269,13 @@ HANGUP_TAG = "[HANGUP]"
 async def hangup_call_via_api(call_sid: str):
     """Hang up the call using Exotel's REST API."""
     try:
+        if not call_sid or call_sid == "unknown" or str(call_sid).startswith("web_"):
+            return
         account_sid = os.environ.get("EXOTEL_ACCOUNT_SID")
         api_key = os.environ.get("EXOTEL_API_KEY")
         api_token = os.environ.get("EXOTEL_API_TOKEN")
-        if not all([account_sid, api_key, api_token, call_sid]) or call_sid == "unknown":
-            print(f"[Hangup] ⚠️ Missing credentials or call_sid — cannot hang up via API")
+        if not all([account_sid, api_key, api_token]):
+            print(f"[Hangup] ⚠️ Missing credentials — cannot hang up via API")
             return
         api_url = f"https://api.exotel.com/v1/Accounts/{account_sid}/Calls/{call_sid}.json"
         async with httpx.AsyncClient() as http:
@@ -286,11 +288,20 @@ async def hangup_call_via_api(call_sid: str):
         print(f"[Hangup] ❌ Error hanging up call: {e}")
 
 
-# ─── Health check ─────────────────────────────────────────────────────────────
+# ─── Web Phone UI & Health check ─────────────────────────────────────────────
 @app.get("/")
+@app.get("/phone")
 async def get():
-    print("[Health] GET / hit — returning OK")
-    return {"status": "ok", "service": "Voicera Exotel Server"}
+    template_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates", "phone.html")
+    if os.path.exists(template_path):
+        with open(template_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
+    return {"status": "ok", "service": "Voicera Server"}
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "service": "Voicera Server"}
 
 
 # ─── Original browser WebSocket (unchanged) ──────────────────────────────────
@@ -436,6 +447,11 @@ async def exotel_websocket(websocket: WebSocket):
                     await asyncio.sleep(sleep_needed)
 
             print(f"[Exotel] ✅ Greeting sent ({exotel_sr}Hz)")
+            if stream_sid and str(stream_sid).startswith("web_"):
+                try:
+                    await websocket.send_text(json.dumps({"event": "transcript", "role": "assistant", "text": greeting}))
+                except Exception:
+                    pass
         except Exception as e:
             print(f"[Exotel] ⚠️ Error sending greeting: {e}")
         finally:
@@ -547,6 +563,11 @@ async def exotel_websocket(websocket: WebSocket):
                         full_reply = cleaned
                     conversation_history.append({"role": "assistant", "content": full_reply})
                     print(f"[Exotel] 🤖 Agent replied: {full_reply}")
+                    if stream_sid and str(stream_sid).startswith("web_"):
+                        try:
+                            await websocket.send_text(json.dumps({"event": "transcript", "role": "assistant", "text": full_reply}))
+                        except Exception:
+                            pass
                 except asyncio.CancelledError:
                     await text_q.put(None)
                 except Exception as e:
@@ -768,7 +789,7 @@ async def exotel_websocket(websocket: WebSocket):
                 asyncio.create_task(send_greeting())
 
                 # Method 2: Fetch from Exotel REST API in background (doesn't block anything)
-                if not caller_phone and call_sid and call_sid != "unknown":
+                if not caller_phone and call_sid and call_sid != "unknown" and not str(call_sid).startswith("web_"):
                     async def fetch_caller_phone():
                         nonlocal caller_phone
                         try:
@@ -907,6 +928,11 @@ async def exotel_websocket(websocket: WebSocket):
                                                 t_done = time.time()
                                                 if text:
                                                     print(f"[Exotel] 🗣️  Caller: {text}  (Streaming STT finalized {t_done - t_end:.2f}s after speech ended)")
+                                                    if stream_sid and str(stream_sid).startswith("web_"):
+                                                        try:
+                                                            await websocket.send_text(json.dumps({"event": "transcript", "role": "user", "text": text}))
+                                                        except Exception:
+                                                            pass
                                                     spam_keywords = ["bulk sms", "बल्क एसएमएस", "credit card", "loan", "लोन", "क्रेडिट कार्ड", "मैसेजिंग सेवा", "आरसीएस", "rcs", "टेलीमार्केटिंग"]
                                                     if any(k in text.lower() for k in spam_keywords):
                                                         print("[Exotel] 🚫 SPAM DETECTED. Hanging up immediately to save credits.")
