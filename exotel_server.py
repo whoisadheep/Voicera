@@ -50,7 +50,7 @@ app = FastAPI()
 EXOTEL_SAMPLE_RATE = 16000
 FISH_SAMPLE_RATE = 16000
 VAD_SILENCE_MS = int(os.environ.get("VAD_SILENCE_MS", "320"))
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "qwen/qwen3.8-27b")
 
 
 # ─── API Clients ──────────────────────────────────────────────────────────────
@@ -539,7 +539,7 @@ async def exotel_websocket(websocket: WebSocket):
                         model=GROQ_MODEL,
                         messages=[{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history,
                         stream=True,
-                        max_tokens=150,
+                        max_tokens=250,
                     )
                     full_reply = ""
                     async for chunk in stream:
