@@ -961,7 +961,7 @@ async def exotel_websocket(websocket: WebSocket):
                                                         except Exception:
                                                             pass
                                                         return
-                                                    await process_speech(text, t0, t_done, prewarmed)
+                                                    await process_speech(text, t_end, t_done, prewarmed)
                                                 else:
                                                     if prewarmed:
                                                         asyncio.create_task(safe_close_tts_task(prewarmed))
