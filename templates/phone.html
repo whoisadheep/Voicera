@@ -2,23 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Voicera — Rudra Infotek Receptionist</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg-dark: #07090e;
-      --card-bg: rgba(18, 24, 38, 0.7);
-      --card-border: rgba(255, 255, 255, 0.08);
-      --primary: #3b82f6;
-      --primary-glow: rgba(59, 130, 246, 0.35);
-      --accent-green: #10b981;
+      --bg-surface: #f8fafc;
+      --card-bg: #ffffff;
+      --text-primary: #0f172a;
+      --text-secondary: #64748b;
+      --accent-purple: #6366f1;
+      --accent-purple-gradient: linear-gradient(135deg, #6366f1, #8b5cf6);
       --accent-red: #ef4444;
-      --accent-yellow: #f59e0b;
-      --text-main: #f8fafc;
-      --text-muted: #94a3b8;
+      --accent-red-gradient: linear-gradient(135deg, #ef4444, #dc2626);
+      --border-subtle: #f1f5f9;
+      --border-card: #e2e8f0;
+      --shadow-card: 0 20px 40px -10px rgba(99, 102, 241, 0.08), 0 4px 16px -2px rgba(0, 0, 0, 0.02);
+      --shadow-dock: 0 16px 36px -8px rgba(15, 23, 42, 0.08), 0 4px 12px rgba(0, 0, 0, 0.03);
     }
 
     * {
@@ -26,274 +28,225 @@
       margin: 0;
       padding: 0;
       -webkit-tap-highlight-color: transparent;
+      user-select: none;
     }
 
     body {
-      font-family: 'Plus Jakarta Sans', sans-serif;
-      background-color: var(--bg-dark);
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-surface);
       background-image: 
-        radial-gradient(circle at 50% 10%, rgba(59, 130, 246, 0.15), transparent 40%),
-        radial-gradient(circle at 80% 80%, rgba(16, 185, 129, 0.08), transparent 40%);
-      color: var(--text-main);
+        radial-gradient(circle at 50% -10%, rgba(99, 102, 241, 0.12) 0%, rgba(248, 250, 252, 0) 55%),
+        radial-gradient(circle at 100% 100%, rgba(139, 92, 246, 0.05) 0%, rgba(248, 250, 252, 0) 40%);
+      color: var(--text-primary);
       min-height: 100vh;
+      min-height: -webkit-fill-available;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: space-between;
-      padding: 1.5rem 1rem;
+      padding: 2.25rem 1.25rem 1.75rem 1.25rem;
       overflow-x: hidden;
+      overflow-y: auto;
     }
 
-    .container {
+    .app-viewport {
       width: 100%;
-      max-width: 440px;
+      max-width: 400px;
       display: flex;
       flex-direction: column;
+      align-items: center;
       flex: 1;
-      gap: 1.25rem;
+      gap: 1.5rem;
     }
 
-    /* Header */
-    header {
+    /* ─── Profile Header ────────────────────────────────────── */
+    .profile-section {
       display: flex;
-      justify-content: space-between;
+      flex-direction: column;
       align-items: center;
-      padding: 0.5rem 0.25rem;
+      position: relative;
+      margin-top: 0.5rem;
     }
 
-    .brand {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-    }
-
-    .brand-icon {
-      width: 28px;
-      height: 28px;
-      background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-      border-radius: 8px;
+    .avatar-container {
+      position: relative;
+      width: 106px;
+      height: 106px;
       display: flex;
       align-items: center;
       justify-content: center;
+      margin-bottom: 1rem;
+    }
+
+    .ripple-ring {
+      position: absolute;
+      border-radius: 50%;
+      border: 1.5px solid rgba(99, 102, 241, 0.15);
+      transition: all 0.3s ease;
+      pointer-events: none;
+    }
+
+    .ring-1 {
+      width: 106px;
+      height: 106px;
+      opacity: 0.8;
+    }
+
+    .ring-2 {
+      width: 130px;
+      height: 130px;
+      opacity: 0.45;
+    }
+
+    .ring-3 {
+      width: 154px;
+      height: 154px;
+      opacity: 0.2;
+    }
+
+    .speaking .ring-1 {
+      animation: ripple 2s infinite ease-out;
+    }
+    .speaking .ring-2 {
+      animation: ripple 2s infinite ease-out 0.4s;
+    }
+    .speaking .ring-3 {
+      animation: ripple 2s infinite ease-out 0.8s;
+    }
+
+    @keyframes ripple {
+      0% { transform: scale(0.95); opacity: 0.6; }
+      50% { opacity: 0.25; }
+      100% { transform: scale(1.28); opacity: 0; }
+    }
+
+    .avatar-img-wrap {
+      width: 84px;
+      height: 84px;
+      border-radius: 50%;
+      overflow: hidden;
+      box-shadow: 0 10px 24px -4px rgba(99, 102, 241, 0.2);
+      border: 3px solid #ffffff;
+      background: linear-gradient(135deg, #e0e7ff, #c7d2fe);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
+    }
+
+    .avatar-img-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .contact-name {
+      font-size: 1.45rem;
       font-weight: 800;
-      font-size: 14px;
-      color: white;
-      box-shadow: 0 0 16px var(--primary-glow);
+      color: var(--text-primary);
+      letter-spacing: -0.025em;
+      margin-bottom: 0.2rem;
     }
 
-    .brand-text {
-      font-size: 0.95rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-
-    .live-badge {
-      font-size: 0.72rem;
-      font-weight: 600;
-      padding: 0.2rem 0.6rem;
-      border-radius: 999px;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      color: #34d399;
+    .contact-number {
+      font-size: 0.92rem;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 0.35rem;
       display: flex;
       align-items: center;
       gap: 0.35rem;
     }
 
-    .live-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: #10b981;
-      box-shadow: 0 0 8px #10b981;
-    }
-
-    /* Hero / Caller Card */
-    .call-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 28px;
-      padding: 1.75rem 1.25rem;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+    .editable-number {
+      background: transparent;
+      border: none;
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: inherit;
+      font-weight: 500;
       text-align: center;
-      backdrop-filter: blur(16px);
-      box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.5);
-      position: relative;
-      overflow: hidden;
+      width: 140px;
+      outline: none;
+      cursor: pointer;
     }
 
-    .avatar-wrapper {
-      position: relative;
-      width: 110px;
-      height: 110px;
-      margin-bottom: 1.2rem;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .avatar-ring {
-      position: absolute;
-      inset: -8px;
-      border-radius: 50%;
-      border: 2px dashed rgba(59, 130, 246, 0.3);
-      animation: rotateRing 20s linear infinite;
-    }
-
-    .avatar-pulse {
-      position: absolute;
-      inset: 0;
-      border-radius: 50%;
-      background: var(--primary);
-      opacity: 0;
-      transform: scale(0.9);
-      transition: all 0.3s ease;
-    }
-
-    .speaking .avatar-pulse {
-      animation: pulseWave 1.6s ease-out infinite;
-    }
-
-    .listening .avatar-pulse {
-      background: var(--accent-green);
-      animation: pulseWave 1.6s ease-out infinite;
-    }
-
-    @keyframes rotateRing {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-
-    @keyframes pulseWave {
-      0% { transform: scale(0.95); opacity: 0.6; }
-      50% { opacity: 0.25; }
-      100% { transform: scale(1.4); opacity: 0; }
-    }
-
-    .avatar {
-      width: 90px;
-      height: 90px;
-      border-radius: 50%;
-      background: linear-gradient(145deg, #1e293b, #0f172a);
-      border: 2px solid rgba(255, 255, 255, 0.15);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 2;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
-    }
-
-    .avatar svg {
-      width: 44px;
-      height: 44px;
-      color: #93c5fd;
-    }
-
-    .caller-title {
-      font-size: 1.35rem;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      margin-bottom: 0.2rem;
-    }
-
-    .caller-sub {
-      font-size: 0.85rem;
-      color: var(--text-muted);
-      margin-bottom: 0.9rem;
-    }
-
-    .status-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      padding: 0.35rem 0.85rem;
-      border-radius: 999px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.1);
-      color: var(--text-muted);
-      transition: all 0.25s ease;
-    }
-
-    .status-badge.connecting {
-      background: rgba(245, 158, 11, 0.15);
-      border-color: rgba(245, 158, 11, 0.3);
-      color: #fbbf24;
-    }
-
-    .status-badge.speaking {
-      background: rgba(59, 130, 246, 0.2);
-      border-color: rgba(59, 130, 246, 0.4);
-      color: #60a5fa;
-    }
-
-    .status-badge.listening {
-      background: rgba(16, 185, 129, 0.18);
-      border-color: rgba(16, 185, 129, 0.35);
-      color: #34d399;
-    }
-
-    .call-timer {
+    .call-duration {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 1.15rem;
+      font-size: 0.95rem;
       font-weight: 600;
-      margin-top: 0.85rem;
-      color: #cbd5e1;
-      opacity: 0.8;
+      color: var(--accent-purple);
+      letter-spacing: -0.01em;
     }
 
-    /* Transcript Box */
-    .transcript-card {
+    /* ─── Audio Waveform ────────────────────────────────────── */
+    .waveform-visualizer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      height: 38px;
+      width: 100%;
+      max-width: 280px;
+      margin: 0.25rem 0;
+    }
+
+    .wave-bar {
+      width: 3.5px;
+      height: 6px;
+      border-radius: 99px;
+      background: var(--accent-purple-gradient);
+      opacity: 0.35;
+      transition: height 0.08s ease, opacity 0.15s ease;
+    }
+
+    .speaking .wave-bar {
+      opacity: 0.9;
+    }
+
+    .listening .wave-bar {
+      background: linear-gradient(135deg, #10b981, #3b82f6);
+      opacity: 0.75;
+    }
+
+    /* ─── Central Dialogue & Tag Card ───────────────────────── */
+    .dialogue-card {
+      width: 100%;
       background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 1rem;
-      flex: 1;
-      min-height: 160px;
-      max-height: 250px;
+      border-radius: 28px;
+      border: 1px solid var(--border-card);
+      box-shadow: var(--shadow-card);
+      padding: 1.5rem 1.4rem;
       display: flex;
       flex-direction: column;
-      backdrop-filter: blur(12px);
+      gap: 1.15rem;
+      min-height: 220px;
+      max-height: 330px;
     }
 
-    .transcript-header {
-      font-size: 0.75rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--text-muted);
-      margin-bottom: 0.6rem;
-      display: flex;
-      justify-content: space-between;
-    }
-
-    .transcript-list {
+    .dialogue-scroller {
       flex: 1;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
-      gap: 0.6rem;
-      padding-right: 0.3rem;
+      gap: 0.85rem;
+      padding-right: 0.25rem;
+      user-select: text;
     }
 
-    .transcript-list::-webkit-scrollbar {
-      width: 4px;
+    .dialogue-scroller::-webkit-scrollbar {
+      width: 3px;
     }
-    .transcript-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.15);
-      border-radius: 4px;
+    .dialogue-scroller::-webkit-scrollbar-thumb {
+      background: #e2e8f0;
+      border-radius: 3px;
     }
 
-    .bubble {
-      padding: 0.6rem 0.85rem;
-      border-radius: 14px;
-      font-size: 0.85rem;
-      line-height: 1.35;
-      max-width: 88%;
-      word-break: break-word;
+    .dialogue-line {
+      font-size: 0.93rem;
+      line-height: 1.5;
+      color: #334155;
       animation: fadeIn 0.25s ease-out;
     }
 
@@ -302,213 +255,252 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    .bubble.assistant {
-      align-self: flex-start;
-      background: rgba(59, 130, 246, 0.15);
-      border: 1px solid rgba(59, 130, 246, 0.25);
-      color: #e2e8f0;
-      border-bottom-left-radius: 4px;
+    .speaker-label {
+      font-weight: 700;
+      color: #4f46e5;
+      margin-right: 0.3rem;
     }
 
-    .bubble.user {
-      align-self: flex-end;
-      background: rgba(16, 185, 129, 0.2);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-      color: #ecfdf5;
-      border-bottom-right-radius: 4px;
-    }
-
-    .empty-state {
+    .empty-prompt {
       margin: auto;
       text-align: center;
-      font-size: 0.8rem;
-      color: #64748b;
+      font-size: 0.86rem;
+      color: #94a3b8;
+      line-height: 1.5;
+      padding: 1rem 0;
     }
 
-    /* Settings / Phone Number */
-    .phone-input-row {
+    /* ─── Real-time Lead Tags ────────────────────────────────── */
+    .tags-container {
       display: flex;
-      align-items: center;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.08);
-      border-radius: 12px;
-      padding: 0.4rem 0.8rem;
+      flex-wrap: wrap;
       gap: 0.5rem;
+      justify-content: center;
+      padding-top: 0.5rem;
+      border-top: 1px solid #f1f5f9;
     }
 
-    .phone-input-row label {
-      font-size: 0.72rem;
-      color: var(--text-muted);
+    .tag-pill {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+      border-radius: 99px;
+      padding: 0.32rem 0.85rem;
+      font-size: 0.76rem;
       font-weight: 600;
-      white-space: nowrap;
+      color: #475569;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s ease;
     }
 
-    .phone-input-row input {
-      background: transparent;
-      border: none;
-      outline: none;
-      color: white;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
+    .tag-pill.active {
+      border-color: rgba(99, 102, 241, 0.4);
+      background: #f5f3ff;
+      color: #6366f1;
+    }
+
+    /* ─── Floating Bottom Control Dock ───────────────────────── */
+    .control-dock {
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 999px;
+      box-shadow: var(--shadow-dock);
+      padding: 0.55rem 0.85rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
       width: 100%;
+      max-width: 340px;
+      margin-top: auto;
+      margin-bottom: 0.5rem;
     }
 
-    /* Actions */
-    .controls {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 1.5rem;
-      padding: 0.5rem 0 1rem 0;
-    }
-
-    .action-btn {
-      width: 68px;
-      height: 68px;
+    .dock-btn {
+      width: 48px;
+      height: 48px;
       border-radius: 50%;
       border: none;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-    }
-
-    .call-btn {
-      background: linear-gradient(135deg, #10b981, #059669);
-      color: white;
-      box-shadow: 0 12px 28px rgba(16, 185, 129, 0.4);
-    }
-
-    .call-btn:active {
-      transform: scale(0.92);
-    }
-
-    .hangup-btn {
-      background: linear-gradient(135deg, #ef4444, #dc2626);
-      color: white;
-      box-shadow: 0 12px 28px rgba(239, 68, 68, 0.4);
-      display: none;
-    }
-
-    .hangup-btn:active {
-      transform: scale(0.92);
-    }
-
-    .secondary-btn {
-      width: 50px;
-      height: 50px;
-      border-radius: 50%;
-      background: rgba(255, 255, 255, 0.06);
-      border: 1px solid rgba(255, 255, 255, 0.12);
-      color: #cbd5e1;
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+      background: #f8fafc;
+      color: #475569;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
     }
 
-    .secondary-btn.active {
-      background: rgba(239, 68, 68, 0.2);
-      border-color: rgba(239, 68, 68, 0.4);
-      color: #fca5a5;
+    .dock-btn:active {
+      transform: scale(0.92);
     }
 
-    .action-btn svg, .secondary-btn svg {
-      width: 28px;
-      height: 28px;
+    .dock-btn.active {
+      background: #fef2f2;
+      color: var(--accent-red);
     }
-    .secondary-btn svg {
+
+    .dock-btn svg {
       width: 20px;
       height: 20px;
+      stroke-width: 2.2;
+    }
+
+    /* Primary Call Button (Purple) */
+    .call-primary-btn {
+      width: 54px;
+      height: 54px;
+      border-radius: 50%;
+      background: var(--accent-purple-gradient);
+      color: #ffffff;
+      box-shadow: 0 8px 20px rgba(99, 102, 241, 0.35);
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .call-primary-btn:active {
+      transform: scale(0.92);
+    }
+
+    .call-primary-btn svg {
+      width: 23px;
+      height: 23px;
+      fill: currentColor;
+    }
+
+    /* End Call Button (Red Circle) */
+    .hangup-primary-btn {
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      background: var(--accent-red-gradient);
+      color: #ffffff;
+      box-shadow: 0 8px 20px rgba(239, 68, 68, 0.35);
+      border: none;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .hangup-primary-btn:active {
+      transform: scale(0.92);
+    }
+
+    .hangup-primary-btn svg {
+      width: 22px;
+      height: 22px;
+      stroke: currentColor;
+      stroke-width: 2.6;
     }
   </style>
 </head>
 <body>
-  <div class="container">
-    <!-- Header -->
-    <header>
-      <div class="brand">
-        <div class="brand-icon">V</div>
-        <span class="brand-text">Voicera AI</span>
-      </div>
-      <div class="live-badge">
-        <div class="live-dot"></div>
-        <span>Phone Test</span>
-      </div>
-    </header>
 
-    <!-- Caller Card -->
-    <div class="call-card" id="callCard">
-      <div class="avatar-wrapper">
-        <div class="avatar-pulse"></div>
-        <div class="avatar-ring"></div>
-        <div class="avatar">
-          <svg fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
-          </svg>
+  <div class="app-viewport">
+    
+    <!-- Profile & Header Section -->
+    <section class="profile-section" id="profileSection">
+      <div class="avatar-container" id="avatarContainer">
+        <div class="ripple-ring ring-3"></div>
+        <div class="ripple-ring ring-2"></div>
+        <div class="ripple-ring ring-1"></div>
+        <div class="avatar-img-wrap">
+          <!-- Elegant minimal receptionist avatar portrait -->
+          <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=260&q=80" alt="Receptionist" />
         </div>
       </div>
 
-      <h1 class="caller-title">Rudra Infotek</h1>
-      <p class="caller-sub">Kumud Ranjan Ojha's Office</p>
-
-      <div class="status-badge" id="statusBadge">
-        <span>Ready to Call</span>
+      <h1 class="contact-name">Rudra Infotek</h1>
+      <div class="contact-number">
+        <input type="text" id="phoneInput" class="editable-number" value="+91 92771 99206" title="Tap to change test caller number" />
       </div>
+      <div class="call-duration" id="callDuration">00:00</div>
+    </section>
 
-      <div class="call-timer" id="callTimer">00:00</div>
+    <!-- Soundwave Bars -->
+    <div class="waveform-visualizer" id="waveform">
+      <!-- 28 bars generated via JS -->
     </div>
 
-    <!-- Live Transcript -->
-    <div class="transcript-card">
-      <div class="transcript-header">
-        <span>Live Transcript</span>
-        <span id="sttBadge" style="color: #60a5fa;">Sarvam + Groq</span>
+    <!-- Live Dialogue & Tag Card -->
+    <section class="dialogue-card">
+      <div class="dialogue-scroller" id="dialogueScroller">
+        <div class="empty-prompt" id="emptyPrompt">
+          Tap the call button to connect with Rudra Infotek Receptionist.
+        </div>
       </div>
-      <div class="transcript-list" id="transcriptList">
-        <div class="empty-state" id="emptyState">Tap the green button to start speaking with the AI receptionist.</div>
+
+      <!-- Real-time Extracted Lead Pills -->
+      <div class="tags-container" id="tagsContainer">
+        <div class="tag-pill" id="pillService">Service: Pending</div>
+        <div class="tag-pill" id="pillUrgency">Urgency: Normal</div>
+        <div class="tag-pill" id="pillCaller">Caller: Verified</div>
       </div>
-    </div>
+    </section>
 
-    <!-- Phone number input for GridCRM logging -->
-    <div class="phone-input-row">
-      <label>Caller Phone:</label>
-      <input type="tel" id="callerPhone" value="+919277199206" placeholder="+91..." />
-    </div>
-
-    <!-- Call Action Controls -->
-    <div class="controls">
-      <button class="secondary-btn" id="muteBtn" title="Mute Microphone" style="visibility: hidden;">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15a3 3 0 01-3-3V4.5a3 3 0 116 0V12a3 3 0 01-3 3z" />
+    <!-- Floating Dock Controls -->
+    <nav class="control-dock">
+      <!-- Mute Mic -->
+      <button class="dock-btn" id="muteBtn" title="Mute Microphone">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
         </svg>
       </button>
 
-      <button class="action-btn call-btn" id="callBtn" title="Start Call">
-        <svg fill="currentColor" viewBox="0 0 24 24">
+      <!-- Speaker / Output Status -->
+      <button class="dock-btn" id="speakerBtn" title="Speaker">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+        </svg>
+      </button>
+
+      <!-- Center Start Call Button (Purple) -->
+      <button class="call-primary-btn" id="callBtn" title="Start Call">
+        <svg viewBox="0 0 24 24">
           <path d="M6.62 10.79a15.053 15.053 0 006.59 6.59l2.2-2.2a1 1 0 011.02-.24c1.12.37 2.33.57 3.57.57a1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.45.57 3.57a1 1 0 01-.24 1.02l-2.21 2.2z"/>
         </svg>
       </button>
 
-      <button class="action-btn hangup-btn" id="hangupBtn" title="End Call">
-        <svg fill="currentColor" viewBox="0 0 24 24">
-          <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08a.996.996 0 010-1.41C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.39.39.39 1.02 0 1.41l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z"/>
+      <!-- Dialpad / Keypad (Visual matching image) -->
+      <button class="dock-btn" id="keypadBtn" title="Keypad">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 8h10M7 12h10M7 16h10M5 4h14a2 2 0 012 2v12a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2z" />
         </svg>
       </button>
 
-      <button class="secondary-btn" id="speakerBtn" title="Audio Status" style="visibility: hidden;">
-        <svg fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 010 12.728M16.463 8.288a5.25 5.25 0 010 7.424M6.75 8.25l4.72-4.72a.75.75 0 011.28.53v15.88a.75.75 0 01-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.01 9.01 0 012.25 12c0-.83.112-1.633.322-2.396C2.806 8.757 3.63 8.25 4.51 8.25H6.75z" />
+      <!-- Hangup Call Button (Red Circle) -->
+      <button class="hangup-primary-btn" id="hangupBtn" title="End Call">
+        <svg fill="none" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
-    </div>
+    </nav>
+
   </div>
 
   <script>
-    // State
+    // ─── Generate Waveform Bars ──────────────────────────────────
+    const waveformContainer = document.getElementById("waveform");
+    const numBars = 28;
+    const waveBars = [];
+    for (let i = 0; i < numBars; i++) {
+      const bar = document.createElement("div");
+      bar.className = "wave-bar";
+      waveformContainer.appendChild(bar);
+      waveBars.push(bar);
+    }
+
+    // ─── Application State ──────────────────────────────────────
     let ws = null;
     let audioCtx = null;
     let micStream = null;
@@ -518,48 +510,82 @@
     let isMuted = false;
     let activeSources = [];
     let nextPlayTime = 0;
-    let timerInterval = null;
     let callStartTimestamp = 0;
+    let timerInterval = null;
+    let waveAnimFrame = null;
 
-    // DOM Elements
-    const callCard = document.getElementById("callCard");
-    const statusBadge = document.getElementById("statusBadge");
-    const callTimer = document.getElementById("callTimer");
+    // ─── DOM References ─────────────────────────────────────────
+    const profileSection = document.getElementById("profileSection");
+    const callDuration = document.getElementById("callDuration");
+    const phoneInput = document.getElementById("phoneInput");
+    const dialogueScroller = document.getElementById("dialogueScroller");
+    const emptyPrompt = document.getElementById("emptyPrompt");
     const callBtn = document.getElementById("callBtn");
     const hangupBtn = document.getElementById("hangupBtn");
     const muteBtn = document.getElementById("muteBtn");
-    const speakerBtn = document.getElementById("speakerBtn");
-    const transcriptList = document.getElementById("transcriptList");
-    const emptyState = document.getElementById("emptyState");
-    const callerPhoneInput = document.getElementById("callerPhone");
+    const pillService = document.getElementById("pillService");
+    const pillUrgency = document.getElementById("pillUrgency");
+    const pillCaller = document.getElementById("pillCaller");
 
-    function setStatus(state, text) {
-      statusBadge.className = "status-badge " + state;
-      statusBadge.innerHTML = `<span>${text}</span>`;
-      callCard.className = "call-card " + state;
+    function setCallState(state) {
+      profileSection.className = "profile-section " + state;
+      waveformContainer.className = "waveform-visualizer " + state;
     }
 
     function updateTimer() {
       const elapsed = Math.floor((Date.now() - callStartTimestamp) / 1000);
       const mins = String(Math.floor(elapsed / 60)).padStart(2, '0');
       const secs = String(elapsed % 60).padStart(2, '0');
-      callTimer.textContent = `${mins}:${secs}`;
+      callDuration.textContent = `${mins}:${secs}`;
     }
 
-    function addTranscript(role, text) {
+    function addDialogue(speaker, text) {
       if (!text) return;
-      if (emptyState) emptyState.style.display = "none";
-      const bubble = document.createElement("div");
-      bubble.className = "bubble " + role;
-      bubble.textContent = text;
-      transcriptList.appendChild(bubble);
-      transcriptList.scrollTop = transcriptList.scrollHeight;
+      if (emptyPrompt) emptyPrompt.style.display = "none";
+      const line = document.createElement("div");
+      line.className = "dialogue-line";
+      
+      const label = document.createElement("span");
+      label.className = "speaker-label";
+      label.textContent = speaker + " - ";
+      
+      const content = document.createElement("span");
+      content.textContent = text;
+      
+      line.appendChild(label);
+      line.appendChild(content);
+      dialogueScroller.appendChild(line);
+      dialogueScroller.scrollTop = dialogueScroller.scrollHeight;
+
+      // Extract real-time tags from speech
+      detectTags(text);
     }
 
-    // Downsampling audio buffer from device sampleRate to 16000Hz
+    function detectTags(text) {
+      const lower = text.toLowerCase();
+      if (lower.includes("cctv") || lower.includes("कैमरा") || lower.includes("camera") || lower.includes("installation")) {
+        pillService.textContent = "Job: CCTV Setup";
+        pillService.classList.add("active");
+      } else if (lower.includes("repair") || lower.includes("service") || lower.includes("खराब") || lower.includes("theek")) {
+        pillService.textContent = "Job: Maintenance";
+        pillService.classList.add("active");
+      }
+
+      if (lower.includes("emergency") || lower.includes("jaldi") || lower.includes("aaj hi")) {
+        pillUrgency.textContent = "Urgency: High";
+        pillUrgency.classList.add("active");
+      }
+
+      const nameMatch = text.match(/(?:naam|name)\s+(?:hai\s+)?([A-Za-z\u0900-\u097F]+)/i);
+      if (nameMatch && nameMatch[1]) {
+        pillCaller.textContent = "Caller: " + nameMatch[1];
+        pillCaller.classList.add("active");
+      }
+    }
+
+    // ─── Audio Helpers ──────────────────────────────────────────
     function downsample(buffer, sampleRate, outSampleRate) {
-      if (outSampleRate === sampleRate) return buffer;
-      if (outSampleRate > sampleRate) return buffer;
+      if (outSampleRate === sampleRate || outSampleRate > sampleRate) return buffer;
       const ratio = sampleRate / outSampleRate;
       const newLength = Math.round(buffer.length / ratio);
       const result = new Float32Array(newLength);
@@ -607,6 +633,28 @@
       }
     }
 
+    // ─── Smooth Waveform Animation ──────────────────────────────
+    function animateWaveform() {
+      if (!isCalling) {
+        waveBars.forEach(b => b.style.height = "5px");
+        return;
+      }
+      const isSpeaking = activeSources.length > 0;
+      waveBars.forEach((bar, idx) => {
+        let height = 5;
+        if (isSpeaking) {
+          const wave = Math.sin(Date.now() * 0.009 + idx * 0.45) * 0.5 + 0.5;
+          height = 6 + wave * 26;
+        } else {
+          // Subtle listening idle pulse
+          const wave = Math.sin(Date.now() * 0.004 + idx * 0.25) * 0.5 + 0.5;
+          height = 4 + wave * 9;
+        }
+        bar.style.height = `${height}px`;
+      });
+      waveAnimFrame = requestAnimationFrame(animateWaveform);
+    }
+
     function playAudioChunk(base64Payload) {
       if (!audioCtx) return;
       try {
@@ -634,7 +682,7 @@
           const idx = activeSources.indexOf(source);
           if (idx > -1) activeSources.splice(idx, 1);
           if (activeSources.length === 0 && isCalling) {
-            setStatus("listening", "Listening to you...");
+            setCallState("listening");
           }
         };
 
@@ -645,22 +693,22 @@
         source.start(nextPlayTime);
         nextPlayTime += audioBuffer.duration;
 
-        setStatus("speaking", "Agent Speaking...");
+        setCallState("speaking");
       } catch (err) {
         console.error("Audio playback error:", err);
       }
     }
 
+    // ─── Call Lifecycle ─────────────────────────────────────────
     async function startCall() {
       try {
-        if (navigator.vibrate) navigator.vibrate(50);
-        setStatus("connecting", "Requesting Mic...");
+        if (navigator.vibrate) navigator.vibrate(30);
 
-        // Initialize AudioContext on user gesture
+        // Resume / initialize Web Audio
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         await audioCtx.resume();
 
-        // Get microphone stream
+        // Mic permission
         micStream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: true,
@@ -669,29 +717,24 @@
           }
         });
 
-        setStatus("connecting", "Connecting to Voicera...");
-
-        // Connect WebSocket
+        // WebSocket Connection
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${protocol}//${window.location.host}/exotel?sample-rate=16000`;
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
-          console.log("[WebPhone] Connected to WebSocket");
           isCalling = true;
           callStartTimestamp = Date.now();
           timerInterval = setInterval(updateTimer, 1000);
+          animateWaveform();
 
-          // Update UI
+          // UI swap
           callBtn.style.display = "none";
           hangupBtn.style.display = "flex";
-          muteBtn.style.visibility = "visible";
-          speakerBtn.style.visibility = "visible";
 
-          // Send Exotel protocol events
           const streamSid = "web_" + Math.random().toString(36).substring(2, 10);
           const callSid = "web_" + Math.random().toString(36).substring(2, 10);
-          const callerId = callerPhoneInput.value.trim() || "+919999999999";
+          const callerId = phoneInput.value.replace(/[^0-9+]/g, '') || "+919277199206";
 
           ws.send(JSON.stringify({ event: "connected" }));
           ws.send(JSON.stringify({
@@ -707,7 +750,7 @@
             }
           }));
 
-          // Set up microphone capture processor
+          // Mic processing pipeline
           micSource = audioCtx.createMediaStreamSource(micStream);
           const bufferSize = 2048;
           processor = audioCtx.createScriptProcessor(bufferSize, 1, 1);
@@ -730,7 +773,7 @@
           micSource.connect(processor);
           processor.connect(audioCtx.destination);
 
-          setStatus("listening", "Listening to you...");
+          setCallState("listening");
         };
 
         ws.onmessage = (event) => {
@@ -740,9 +783,10 @@
               playAudioChunk(msg.media.payload);
             } else if (msg.event === "clear") {
               clearPlaybackQueue();
-              setStatus("listening", "Listening to you...");
+              setCallState("listening");
             } else if (msg.event === "transcript") {
-              addTranscript(msg.role, msg.text);
+              const speaker = msg.role === "assistant" ? "Viora" : "Caller";
+              addDialogue(speaker, msg.text);
             } else if (msg.event === "stop") {
               endCall();
             }
@@ -752,29 +796,29 @@
         };
 
         ws.onerror = (err) => {
-          console.error("[WebPhone] WS Error:", err);
-          setStatus("", "Connection Error");
+          console.error("WebSocket error:", err);
           endCall();
         };
 
         ws.onclose = () => {
-          console.log("[WebPhone] WS Closed");
           if (isCalling) endCall();
         };
 
       } catch (err) {
-        console.error("Error starting call:", err);
+        console.error("Start call failed:", err);
         alert("Microphone permission required: " + (err.message || err));
-        setStatus("", "Mic Permission Denied");
       }
     }
 
     function endCall() {
-      if (navigator.vibrate) navigator.vibrate([40, 60, 40]);
+      if (navigator.vibrate) navigator.vibrate([30, 50]);
       isCalling = false;
       clearInterval(timerInterval);
+      if (waveAnimFrame) cancelAnimationFrame(waveAnimFrame);
 
       clearPlaybackQueue();
+      setCallState("");
+      waveBars.forEach(b => b.style.height = "5px");
 
       if (ws) {
         try {
@@ -803,12 +847,9 @@
         audioCtx = null;
       }
 
-      // Reset UI
       callBtn.style.display = "flex";
       hangupBtn.style.display = "none";
-      muteBtn.style.visibility = "hidden";
-      speakerBtn.style.visibility = "hidden";
-      setStatus("", "Call Ended");
+      callDuration.textContent = "00:00";
     }
 
     callBtn.addEventListener("click", startCall);
